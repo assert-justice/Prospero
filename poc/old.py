@@ -1,32 +1,25 @@
 import sys
 
+reserved = {
+    "scene",
+    "location",
+    "note",
+    "clip",
+    "enters",
+    "left",
+    "right",
+    "up",
+    "if",
+    "then",
+    "else",
+    "set",
+    "to",
+    "semi"
+    }
+directions = {"left","right","up"}
+stage_positions = {"left","right","far_left","far_right","middle"}
+
 class Token():
-    reserved = {
-        "scene",
-        "location",
-        "note",
-        "clip",
-        "enters",
-        "left",
-        "right",
-        "up",
-        "if",
-        "then",
-        "else",
-        "set",
-        "to",
-        "semi"
-        }
-    directions = {"left","right","up"}
-    stage_positions = {"left","right","far_left","far_right","middle"}
-    top_stmt = {"scene","clip","option"}
-    bottom_stmt = {"if","set"}
-    misc_stmt = {"location","music","sound","load","jump"}
-    reserved = reserved.union(directions)
-    reserved = reserved.union(stage_positions)
-    reserved = reserved.union(top_stmt)
-    reserved = reserved.union(bottom_stmt)
-    reserved = reserved.union(misc_stmt)
     def __init__(self):
         self.type = ""
         self.val = 0
@@ -60,10 +53,6 @@ class Scanner():
             self.add_token("l_bracket")
         elif c == "]":
             self.add_token("r_bracket")
-        elif c == "(":
-            self.add_token("l_paren")
-        elif c == ")":
-            self.add_token("r_paren")
         elif c == "+":
             self.add_token("add")
         elif c == "-":
@@ -86,6 +75,7 @@ class Scanner():
         elif c == '\r':
             pass
         elif c == '\n':
+            self.add_token("eol")
             self.line+=1
         else:
             if self.is_digit(c):
@@ -96,8 +86,7 @@ class Scanner():
                 # error
                 pass
     def is_alpha(self, char):
-        return not self.is_digit(char) and not char in {
-            ":","+","-","*","/","%","\n","\t"," ","\r","[","]","(",")"}
+        return not self.is_digit(char) and not char in {":","+","-","*","/","%","\n","\t"," ","\r","[","]"}
     def is_alphanumeric(self, char):
         return self.is_alpha(char) or self.is_digit(char)
     def identifier(self):
@@ -105,7 +94,7 @@ class Scanner():
             self.advance()
         t = Token()
         t.literal = self.source[self.start:self.current].lower()
-        if t.literal in Token.reserved:
+        if t.literal in reserved:
             t.type = t.literal
         else:
             t.type = "identifier"
@@ -161,11 +150,65 @@ class Scanner():
         self.current+=1
         return self.source[self.current-1]
 
+class Stmt():
+    pass
+
+class SceneStmt():
+    def __init__(self, stmts):
+        self.stmts = stmts
+
+class ClipStmt():
+    def __init__(self, stmts):
+        self.stmts = stmts
+
+class OptionStmt():
+    def __init__(self, text, jump):
+        self.jump = jump
+
+class CondStmt():
+    def __init__(self, cond_expr, then_stmts, else_stmts):
+        self.cond_expr = cond_expr
+        self.then_stmt = then_stmt
+        self.else_stmt = else_stmt
+
+class AssignStmt():
+    def __init__(self, target, expr):
+        self.target = target
+        self.expr = expr
+
+class ExprStmt():
+    def __init__(self, expr):
+        self.expr = expr
+
+class CharStmt():
+    def __init__(self, char, inst, args):
+        self.char = char
+        self.inst = inst
+        self.args = args
+
+class BinaryExpr():
+    def __init__(self, left, operator, right):
+        self.left = left
+        self.operator = operator
+        self.right = right
+
+class UnaryExpr():
+    def __init__(self, operator, right):
+        self.operator = operator
+        self.right = right
+
+class GroupExpr():
+    def __init__(self, expr):
+        self.expr = expr
+
+class PrimaryExpr():
+    def __init__(self, identifier):
+        self.identifier = identifier
+
 class Parser():
     def __init__(self):
-        self.children = []
+        self.stmts = {}
         self.characters = {}
-        self.keywords = {}
         self.curent = 0
         self.tokens = []
     def add_file(self, fname):
@@ -180,67 +223,96 @@ class Parser():
         while self.peek().type != "scene":
             self.advance()
         while not self.is_at_end():
-            stmt = self.outer_stmt()
-            self.children.append(stmt)
-        print(self.children)
-
-    def outer_stmt(self):
-        if self.match("l_bracket"):
-            t = self.advance()
-            if not self.is_inner():
-                self.error(t, "Invalid keyword in inner statement")
-            stmt = self.statement(t.type)
-            self.consume("r_bracket", "Expected ']' at end of statement.")
-            return stmt
-        if self.is_outer():
-            t = self.advance()
-            self.consume("colon",  "Expected ':' at end of statement.")
-            return self.statement(t.type)
-        else:
-            self.error(t, "Invalid keyword in outer statement")
-            
-    '''
-    top_stmt = {"scene","clip","option"}
-    bottom_stmt = {"if","set"}
-    misc_stmt = {"location","music","sound","load","jump"}
-    '''
-
-    def is_outer(self):
-        t = self.peek().type
-        return t in Token.top_stmt or t in Token.misc_stmt
-
-    def is_inner(self):
-        t = self.peek().type
-        return t in Token.bottom_stmt or t in Token.misc_stmt
-
-    def statement(self, keyword):
-        if keyword == "scene":
-            return self.scene()
-        elif keyword == "clip":
-            return self.clip()
-        elif keyword == "option":
-            return self.option()
-        elif keyword == "if":
-            return self.if_stmt()
-        elif keyword == "set":
-            return self.set_stmt()
-        else:
-            return {"type": keyword, "arg": self.advance()}
-        
+            self.scene()
 
     def scene(self):
-        pass
+        self.consume("scene", "Expected scene heading")
+        self.consume("colon", "Expected ':' after scene heading")
+        name = self.advance()
+        self.consume("eol", "Expected end of line after scene heading")
+        scene = {}
+        self.scenes[name] = scene
+        scene["name"] = name
+        scene["clips"] = {}
+        scene["stmts"] = []
+        while not self.is_at_end() and not self.check("scene"):
+            if self.match("l_bracket"):
+                stmt = self.statement()
+                self.consume("r_bracket","Expected ']' at end of statement")
+                scene["stmts"].append(stmt)
+            elif self.check("clip"):
+                name, clip = self.clip()
+                scene["clips"][name] = clip
+            else:
+                self.error(self.peek(), "Unexpected token")
+            break
+
+    def statement(self):
+        if self.match("set"):
+            ident = self.peek()
+            self.consume("identifier", "Expected identifier after 'set' keyword")
+            self.consume("to", "Expected 'to' keyword after identifier in set statement")
+            stmt = AssignStmt(ident, self.expression())
+            return stmt
+        elif self.match("if"):
+            cond = self.expression()
+            self.consume("then", "Expected 'then' keyword after condition in if statement")
+            then_stmts = []
+            while True:
+                then_stmts.append(self.statement())
+                if not self.match("semi"):
+                    break
+        elif self.peek().type == "identifier":
+            #if self.match("looks","enters",)
+            name = self.advance()
+            if not self.peek().type in {"looks","enters","moves","turns"}:
+                self.error(self.peek(), "Unexpected token in character command")
+            inst = self.peek()
+            args = []
+            if self.match("looks"):
+                pass
+            elif self.match("enters"):
+                if self.peek().type in directions:
+                    args.append(self.advance())
+                    if self.peek().type in stage_positions:
+                        args.append(self.advance())
+            elif self.match("moves"):
+                pass
+            elif self.match("turns"):
+                pass
+            stmt = CharStmt(name, inst, args)
+            #print(name, inst, [str(arg) for arg in args])
+            
 
     def clip(self):
-        pass
+        self.consume("clip", "Expected clip heading")
+        self.consume("colon", "Expected ':' after clip heading")
+        name = self.advance()
+        self.consume("eol", "Expected end of line after clip heading")
+        clip = {}
+        clip["name"] = name
+        clip["stmts"] = []
+        clip["options"] = []
+        clip["lines"] = []
+        while not self.is_at_end() and not self.check("scene") and not self.check("clip"):
+            if self.match("l_bracket"):
+                stmt = self.statement()
+                self.consume("r_bracket","Expected ']' at end of statement")
+                clip["stmts"].append(stmt)
+            elif self.check("option"):
+                name, option = self.option()
+                scene["options"][name] = option
+            elif self.check("identifier"):
+                pass
+            else:
+                self.error(self.peek(), "Unexpected token")
+            break
 
     def option(self):
-        pass
+        self.consume("option", "Expected option heading")
+        self.consume("colon", "Expected ':' after option heading")
 
-    def if_stmt(self):
-        pass
-
-    def set_stmt(self):
+    def expression(self):
         pass
 
     def match(self, *args):
@@ -268,9 +340,7 @@ class Parser():
             return self.advance()
         self.error(self.peek(), message)
     def error(self, token, message):
-        if token.type == "eof":
-            raise Exception(str(token.line) + " at end " + message)
-        raise Exception("Error on line "+ str(token.line) + " at '" + token.literal + "' " + message)
+        raise Exception(message + " at line " + str(token.line))
 
 if __name__ == "__main__":
     '''args = sys.argv[1:]
